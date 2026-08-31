@@ -1,350 +1,271 @@
-clear
-close all 
-clc
+%% UAVs_Kalman - Simulasi UAV CBF dengan Estimasi State Rintangan Berbasis Kalman Filter
+% Script ini mensimulasikan gerak UAV 3D yang menghindari rintangan bergerak dinamis
+% di mana posisi, kecepatan, dan percepatan rintangan diestimasi menggunakan 9-state Kalman Filter.
 
-% Use global Parameters to simplify simulation
-global A B K Kp Kd mu d d1 f Ox Oy R Obs alpha dt Ak Hk Pk Jk Qk xk i
+clear;
+close all;
+clc;
 
-global Pd Xd Yd Zd Pd_dot Xd_dot Yd_dot Zd_dot Pd_dd s r Ox Oy Oz Ux Uy Uz Ob1 Ob2 H Ob1_pred Ob1Dot_pred Ob1DotDot_pred
-syms Pd Xd Yd Zd Pd_dot Xd_dot Yd_dot Zd_dot Pd_dd s
+%% Global Parameters
+global A B Kp Kd mu r f Ox Oy Oz Ak Hk Pk Jk Qk xk step_idx
 
-%% Trajectory Parameters (for feedforward)
-% Origin
+%% Parameter Trajektori (Feedforward)
+% Titik asal
 Ox = 20;
 Oy = 3;
 Oz = 20;
 
-% Angular velocity (in Rad/s)
+% Kecepatan sudut (rad/s)
 f = pi/4;
 
-%% Feedforward (elliptic trajectory)
-
-% Trajectory Reference
-Pd = [  Ox - f*s; Oy; Oz];
-
-% First derivative (velocity reference)
-Pd_dot  = [ -f; 0; 0];
-
-Xd_dot = Pd_dot(1,:);
-Yd_dot = Pd_dot(2,:);
-Zd_dot = Pd_dot(3,:);
-
-% Second derivative (acceleration reference for feedforward term)
-Pd_dd = [0; 0; 0];
-
-%% Obstacles Coordinates
-
-% In this scenario, all obstacles are moving. Otherwise, specify constant
-% Position of each obstacle
-
-%% Controller's parameters 
-% Proportional And derivative Gains
+%% Parameter Kontroler
+% Gain Proporsional dan Derivatif
 Kp = 100;
 Kd = 30;
 
 % Gain Matrix
-K = [   Kp  0   0   Kd  0   0;
-        0   Kp  0   0   Kd  0
-        0   0   Kp  0   0   Kd];
+K = [Kp,  0,  0, Kd,  0,  0;
+      0, Kp,  0,  0, Kd,  0;
+      0,  0, Kp,  0,  0, Kd];
 
-% CBF Parameters
+% Parameter CBF
 alpha = 5;
 mu = 0.05;
 d = 2;
 d1 = 5;
 r = 1;
 
-% Controller saturation
+% Saturasi kontroler
 sat = 40;
 
-%% System Dynamics' Matrices
+%% Matriks Dinamika Sistem
+A = [zeros(3, 3), eye(3);
+     zeros(3, 6)];
 
-A = [   0 0 0 1 0 0;
-        0 0 0 0 1 0;
-        0 0 0 0 0 1;
-        0 0 0 0 0 0;
-        0 0 0 0 0 0; 
-        0 0 0 0 0 0];
+B = [zeros(3, 3);
+     eye(3)];
 
+%% Setup Kalman Filter (9-State: Posisi, Kecepatan, Percepatan 3D)
+dt = 0.05;  % Interval sampling
+Qk = diag([0.01, 0.01, 0.01, 0.1, 0.1, 0.1, 0.5, 0.5, 0.5]);  % Covariance Proses
+Jk = diag([0.05, 0.05, 0.05]);                               % Covariance Pengukuran
 
-B = [   0 0 0;
-        0 0 0;
-        0 0 0;
-        1 0 0;
-        0 1 0;
-        0 0 1];
+% Matriks Transisi Ak
+Ak = [eye(3), dt*eye(3), 0.5*(dt^2)*eye(3);
+      zeros(3), eye(3),  dt*eye(3);
+      zeros(3), zeros(3), eye(3)];
 
-%% Closed Loop system simulation
+% Matriks Observasi Hk (hanya posisi yang terukur)
+Hk = [eye(3), zeros(3, 6)];
 
-% Initial state 
-x0 = [20 3 20 0 0 0];
+% Kondisi Awal Filter Kalman
+x0k = [0; 10; 20; 0; 0; 0; 0; 0; 0];
+Pk = eye(9);
 
-% Simulation time vector
-tspan=0:0.05:30;
+% Waktu simulasi
+tspan = 0:0.05:30;
+xk = zeros(9, length(tspan) + 1);
+xk(:, 1) = x0k;
+step_idx = 1;
 
-%% Kalman Filter
-%Setup Kalman Filter
-dt = 0.05;  % Sampling interval
-Qk = diag([0.01, 0.01, 0.01, 0.1, 0.1, 0.1, 0.5, 0.5, 0.5]);  % Process Covariance
-Jk = diag([0.05, 0.05, 0.05]);  % Measurements Covariance
+%% Simulasi Closed-Loop
+% Kondisi awal robot
+x0 = [20; 3; 20; 0; 0; 0];
 
-% Transition Matrix 
-Ak = [1, 0, 0, dt, 0, 0, dt^2/2, 0, 0;
-     0, 1, 0, 0, dt, 0, 0, dt^2/2, 0;
-     0, 0, 1, 0, 0, dt, 0, 0, dt^2/2;
-     0, 0, 0, 1, 0, 0, dt, 0, 0;
-     0, 0, 0, 0, 1, 0, 0, dt, 0;
-     0, 0, 0, 0, 0, 1, 0, 0, dt;
-     0, 0, 0, 0, 0, 0, 1, 0, 0;
-     0, 0, 0, 0, 0, 0, 0, 1, 0;
-     0, 0, 0, 0, 0, 0, 0, 0, 1];
+% Jalankan simulasi numerik
+[t, x] = ode45(@simulation, tspan, x0);
 
+% Konversi format data simulasi untuk plotting
+[~, Xd, Yd, Zd, Ux, Uy, Uz, Ob1, h] = ...
+    cellfun(@(t_val, x_val) simulation(t_val, x_val.'), num2cell(t), num2cell(x, 2), 'UniformOutput', false);
 
+H = cell2mat(h);
 
-% Observation matrix
-Hk = [1, 0, 0, 0, 0, 0, 0, 0, 0;
-     0, 1, 0, 0, 0, 0, 0, 0, 0;
-     0, 0, 1, 0, 0, 0, 0, 0, 0];
+% Ekstraksi posisi rintangan nyata
+Pobs1 = cell2mat(Ob1);
+Pobs1x = Pobs1(1, :);
+Pobs1y = Pobs1(2, :);
+Pobs1z = Pobs1(3, :);
 
+%% Plotting Hasil Simulasi
 
-% Initialization
-x0k = [0; 10; 20; 0; 0; 0; 0; 0; 0];  % initial state (OB Pos, Vel, Acc)
-Pk = eye(9);       % initial covariance
+% Posisi UAV
+X = x(:, 1);
+Y = x(:, 2);
+Z = x(:, 3);
 
-xk = zeros(9, length(tspan));
-xk(:,1) = x0k;
+% Kecepatan UAV
+X_dot = x(:, 4);
+Y_dot = x(:, 5);
+Z_dot = x(:, 6);
 
-% Parameter for Kalman Filter
-i = 1;
-
-% Start simulation
-[t, x]=ode45(@simulation,tspan,x0);
-
-% Convert data format for plotting
-[~,Xd,Yd,Zd, Ux, Uy, Uz, Ob1, h] = cellfun(@(t,x) simulation(t,x.'), num2cell(t), num2cell(x,2),'uni',0);
-H = cell2mat(h)
-
-%Extracting positions of Obstacle
-Pobs1x = zeros(1, length(Ob1));
-Pobs1y = zeros(1, length(Ob1));
-Pobs1z = zeros(1, length(Ob1));
-
-for i = 1:length(Ob1)
-    Px = Ob1{i}(1,:);
-    Py = Ob1{i}(2,:);
-    Pz = Ob1{i}(3,:);
-    Pobs1x(i) = double(Px);
-    Pobs1y(i) = double(Py);
-    Pobs1z(i) = double(Pz);
-end
-
-%% Plotting
-
-% X,Y,Z position
-X = x(:,1);
-Y = x(:,2);
-Z = x(:,3);
-
-% X,Y,Z velocities
-X_dot = x(:,4);
-Y_dot = x(:,5);
-Z_dot = x(:,6);
-
-% Plot Reference Trajectory
+% Trajektori Referensi
 xd = cell2mat(Xd);
 yd = cell2mat(Yd);
 zd = cell2mat(Zd);
 
-% Control Effort
-figure(1)
-title('Control Effort')
-xlabel('t')
-ylabel('u(t) [m/s^2]')
+% 1. Plot Control Effort
+figure(1);
 ux = cell2mat(Ux);
 uy = cell2mat(Uy);
 uz = cell2mat(Uz);
-plot(t,ux, 'b',t, uy,'r', t, uz, 'y', 'LineWidth',2)
-yline(sat, 'k--','Label','Saturation')
-yline(-sat, 'k--','Label','Saturation')
-legend('x acceleration','y acceleration', 'z acceleration')
-ylim([min([ux;uy;uz])-2,max([ux;uy;uz])+2])
+plot(t, ux, 'b', t, uy, 'r', t, uz, 'm', 'LineWidth', 2);
+hold on;
+yline(sat, 'k--', 'Label', 'Saturation', 'LineWidth', 1.2);
+yline(-sat, 'k--', 'Label', '-Saturation', 'LineWidth', 1.2);
+hold off;
+title('Control Effort');
+xlabel('t [s]');
+ylabel('u(t) [m/s^2]');
+legend('x acceleration', 'y acceleration', 'z acceleration', 'Location', 'best');
+grid on;
+box on;
+ylim([min([ux; uy; uz]) - 2, max([ux; uy; uz]) + 2]);
 
-% UAV Velocity
-figure(2)
-title('Robot Velocities')
-xlabel('t')
-ylabel('v(t) [m/s]')
-plot(t,X_dot, 'b',t, Y_dot,'r', t, Z_dot,'y', 'LineWidth',2)
-legend('x velocity','y velocity', 'z velocity')
-ylim([min([X_dot;Y_dot;Z_dot])-2,max([X_dot;Y_dot;Z_dot])+2])
-
-
-figure(3)
-T = [0 tspan];
-subplot(2,1,2)
-plot(T,xk(4,:) , 'r', T, xk(5,:), 'y', T, xk(6,:), 'b', 'Linewidth', 2)
-title('Estimated velocity of the obstacle');
-xlabel('t');
+% 2. Plot Kecepatan UAV
+figure(2);
+plot(t, X_dot, 'b', t, Y_dot, 'r', t, Z_dot, 'm', 'LineWidth', 2);
+title('Robot Velocities');
+xlabel('t [s]');
 ylabel('v(t) [m/s]');
-legend('x estimated velocity','y estimated velocity', 'z estimated velocity')
+legend('x velocity', 'y velocity', 'z velocity', 'Location', 'best');
 grid on;
+box on;
+ylim([min([X_dot; Y_dot; Z_dot]) - 2, max([X_dot; Y_dot; Z_dot]) + 2]);
 
-subplot(2, 1, 1); 
-plot(T, 10*f*cos(f*T), 'r', T, -10*f*sin(f*T), 'y', T, 0*ones(length(T)), 'b', 'Linewidth', 2);
-title('Real velocity of the obstacle');
-xlabel('t');
+% 3. Plot Kecepatan Rintangan: Real vs Estimasi
+figure(3);
+T = [0, tspan];
+numT = length(T);
+
+subplot(2, 1, 1);
+plot(T, 10*f*cos(f*T), 'r', T, -10*f*sin(f*T), 'g', T, zeros(1, numT), 'b', 'LineWidth', 2);
+title('Real Velocity of the Obstacle');
+xlabel('t [s]');
 ylabel('v(t) [m/s]');
-legend('x real velocity','y real velocity', 'z real velocity')
+legend('v_x real', 'v_y real', 'v_z real', 'Location', 'best');
 grid on;
+box on;
 
-figure(4)
-T = [0 tspan];
-subplot(2,1,2)
-plot(T,xk(7,:) , 'r', T, xk(8,:), 'y', T, xk(9,:), 'b', 'Linewidth', 2)
-title('Estimated acceleration of the obstacle');
-xlabel('t');
+subplot(2, 1, 2);
+plot(T, xk(4, 1:numT), 'r', T, xk(5, 1:numT), 'g', T, xk(6, 1:numT), 'b', 'LineWidth', 2);
+title('Estimated Velocity of the Obstacle (Kalman Filter)');
+xlabel('t [s]');
+ylabel('v(t) [m/s]');
+legend('v_x est', 'v_y est', 'v_z est', 'Location', 'best');
+grid on;
+box on;
+
+% 4. Plot Percepatan Rintangan: Real vs Estimasi
+figure(4);
+
+subplot(2, 1, 1);
+plot(T, -10*(f^2)*sin(f*T), 'r', T, -10*(f^2)*cos(f*T), 'g', T, zeros(1, numT), 'b', 'LineWidth', 2);
+title('Real Acceleration of the Obstacle');
+xlabel('t [s]');
 ylabel('a(t) [m/s^2]');
-legend('x estimated acceleration','y estimated acceleration', 'z estimated acceleration')
+legend('a_x real', 'a_y real', 'a_z real', 'Location', 'best');
 grid on;
+box on;
 
-subplot(2, 1, 1); 
-plot(T, -10*f^2*sin(f*T), 'r', T, -10*f^2*cos(f*T), 'y', T, 0*ones(length(T)), 'b', 'Linewidth', 2);
-title('Real acceleration of the obstacle');
-xlabel('t');
+subplot(2, 1, 2);
+plot(T, xk(7, 1:numT), 'r', T, xk(8, 1:numT), 'g', T, xk(9, 1:numT), 'b', 'LineWidth', 2);
+title('Estimated Acceleration of the Obstacle (Kalman Filter)');
+xlabel('t [s]');
 ylabel('a(t) [m/s^2]');
-legend('x real acceleration','y real acceleration', 'z real acceleration')
+legend('a_x est', 'a_y est', 'a_z est', 'Location', 'best');
 grid on;
+box on;
 
-%% Simulation Function
-function [dx,Xd,Yd,Zd, Ux, Uy, Uz, Ob1, h] =simulation(t,x)
-global A B Pd Pd_dot Pd_dd s Kp Kd Obs mu alpha r a b f Ox Oy Oz po poPerp dt Ak Hk Pk Jk Qk xk i Ob1_pred Ob1Dot_pred Ob1DotDot_pred Ob1Dot
+%% Fungsi Simulasi Sistem Dinamik dan Kontroler CBF
+function [dx, Xd, Yd, Zd, Ux, Uy, Uz, Ob1, h] = simulation(t, x)
+    global A B Kp Kd mu r f Ox Oy Oz Ak Hk Pk Jk Qk xk step_idx
 
-deltaFunc1 = 2;
+    deltaFunc1 = 2;
 
-% FeedForward
-yref = [Ox - f*t; Oy; Oz];
+    % Trajektori Referensi (Feedforward)
+    yref = [Ox - f*t; Oy; Oz];
+    yref_dot = [-f; 0; 0];
+    yref_dd = [0; 0; 0];
 
-yref_dot  = [-f; 0; 0];
+    % 1. Kalman Filter Step untuk Estimasi Rintangan
+    x_pred = Ak * xk(:, step_idx);
+    P_pred = Ak * Pk * Ak' + Qk;
 
-yref_dd = [0; 0; 0];
+    % Simulasi Pengukuran dengan noise
+    zk = [10*sin(f*t); 10*cos(f*t); 20] + randn(3, 1) * 0.05;
 
-yref = double(yref);
-yref_dot = double(yref_dot);
-yref_dd = double(yref_dd);
+    % Update Kalman Filter
+    yk = zk - Hk * x_pred;
+    Sk = Hk * P_pred * Hk' + Jk;
+    Kk = (P_pred * Hk') / Sk;
 
-% Kalman Filter for Obstacle estimation
-% Prediction
+    xk(:, step_idx + 1) = x_pred + Kk * yk;
+    Pk = (eye(9) - Kk * Hk) * P_pred;
 
-x_pred = Ak * xk(:,i);  
-P_pred = Ak * Pk * Ak' + Qk;  
+    % Nilai estimasi
+    xkk = xk(:, step_idx);
+    Ob1Dot_pred = xkk(4:6);
+    Ob1DotDot_pred = xkk(7:9);
 
-% Measurement simulation
-zk = [10*sin(f*t); 10*cos(f*t); 20] + randn(3, 1) * 0.05;  
+    % Nilai nyata rintangan
+    Ob1 = [10*sin(f*t); 10*cos(f*t); 20];
 
-% Correction
-yk = zk - Hk * x_pred;  
-Sk = Hk * P_pred * Hk' + Jk;  
-Kk = P_pred * Hk' / Sk;  
+    % Posisi dan kecepatan UAV
+    Pi = x(1:3);
+    Pi_dot = x(4:6);
 
-xk(:,i+1) = x_pred + Kk * yk;  
+    % Kontrol Nominal
+    uNominal = yref_dd + Kd*(yref_dot - Pi_dot) + Kp*(yref - Pi);
 
-Pk = (eye(9) - Kk * Hk) * P_pred;  
+    % Vektor relatif terhadap rintangan
+    V = Pi - Ob1;
+    V_dot = Pi_dot - Ob1Dot_pred;
 
-% Estimated Position and velocity 
-xkk=xk(:,i);
-Ob1_pred = double(xkk(1:3));  
-Ob1Dot_pred = double(xkk(4:6));  
-Ob1DotDot_pred = double(xkk(7:9));
+    % Operator Proyeksi
+    po = (V * V') / (V' * V);
+    poPerp = eye(3) - po;
 
-% Real position, velocity and acceleration of the obstacle
-Ob1 = [10*sin(f*t); 10*cos(f*t); 20];
-Ob1Dot = [10*f*cos(f*t); -10*f*sin(f*t); 0];
-Ob1DotDot = [-10*f^2*sin(f*t); -10*f^2*cos(f*t); 0];
+    % Komponen tegak lurus
+    u_perp = zeros(3, 1);
+    if rank([V, Pi_dot, x(4:6)], 0.1) == 1
+        u_perp = [-V(2); V(1); 0];
+    end
 
-Ob1 = double(Ob1);
-Ob1Dot = double(Ob1Dot);
-Ob1DotDot = double(Ob1DotDot);
+    % Evaluasi Control Barrier Function (CBF)
+    h1 = V' * (mu*uNominal + 2*V_dot - mu*Ob1DotDot_pred);
+    h2 = (V'*V + mu*(V'*V_dot));
+    gamma = 12;
 
-Obs = Ob1;
+    % Switching Logika CBF
+    if h1 > 0 || h2 > deltaFunc1 + (r*gamma)
+        u = uNominal;
+    else
+        u = ((-2/mu) * (po * V_dot)) + (poPerp * uNominal) + Ob1DotDot_pred + u_perp;
+    end
 
-% Position and Velocity
-Pi = x(1:3);
-Pi_dot = x(4:6);
+    % Saturasi kontroler
+    sat = 40;
+    u = min(max(u, -sat), sat);
 
-% Nominal control
-uNominal = yref_dd + Kd*(yref_dot - Pi_dot) + Kp*(yref-Pi);
+    % Output Kontrol
+    Ux = u(1);
+    Uy = u(2);
+    Uz = u(3);
 
-t
+    % Output Referensi
+    Xd = yref(1);
+    Yd = yref(2);
+    Zd = yref(3);
 
-V = (Pi - Ob1);
-V_dot = (Pi_dot - Ob1Dot_pred);
-%Definition of Projection Operators
-po = V*((V'*V)^(-1))*V';
-poPerp = eye(3) - po;
+    % Indeks Evaluasi CBF
+    h = V'*V + mu*(V'*V_dot) - (deltaFunc1 + r);
 
-u_perp = 0;
-% Perp component
-if rank([V, Pi_dot, x(4:6)],  0.1) == 1
-    u_perp = ([-V(2); V(1); 0]);
-end
-    
-%Definition of CBF
-h1 = V' * (mu*uNominal + 2*V_dot - mu*Ob1DotDot_pred);
-h2 = (V'*V + mu*V'*V_dot);
-gamma = 12;
+    % Persamaan diferensial state
+    dx = A*x + B*u;
 
-%Switching
-if h1>0 || h2>deltaFunc1+(r*gamma)
-    u = uNominal;
-else
-    u = ((-2/mu)*(po*V_dot)) + (poPerp*uNominal) + Ob1DotDot_pred + u_perp; %+ 2*V_inv*Pi_dot'*Ob1Dot;
-end
-
-
-% X,Y reference 
-Xd = yref(1);
-Yd = yref(2);
-Zd = yref(3);
-
-% CBF evaluation index
-h = V'*V+mu*V'*V_dot - (deltaFunc1+r);
-
-% Controller Saturation (if needed)
-sat = 40;
-if u(1) > sat
-    u(1) = sat;
-end
-
-if u(1) < -sat
-    u(1) = -sat;
-end
-
-if u(2) > sat
-    u(2) = sat;
-end
-
-if u(2) < -sat
-    u(2) = -sat;
-end
-
-if u(3) > sat
-    u(3) = sat;
-end
-
-if u(3) < -sat
-    u(3) = -sat;
-end
-
-% X,Y,Z control
-Ux = u(1);
-Uy = u(2);
-Uz = u(3);
-
-% Proceed to next simulation step
-dx = A*x + B*u;
-
-if t > (i-1)*0.05
-    i = i+1;
-end
-
+    % Perbarui step index untuk sampling discrete Kalman Filter
+    if t > (step_idx - 1) * 0.05 && step_idx < size(xk, 2) - 1
+        step_idx = step_idx + 1;
+    end
 end

@@ -1,41 +1,17 @@
+%% UAVsAnimation - Animasi 3D Pergerakan UAV dengan Dua Rintangan
+% Script ini menampilkan visualisasi animasi 3D pergerakan robot UAV
+% bersama dengan trajektori heliks dan dua rintangan bergerak.
+
 close all;
 
-% Preallocazione per posizioni ostacoli
-Pobs1x = zeros(1, length(Ob1));
-Pobs1y = zeros(1, length(Ob1));
-Pobs1z = zeros(1, length(Ob1));
+%% Pengaturan Grafis dan Figure
+fig = figure(100);
+set(fig, 'Units', 'Normalized', 'OuterPosition', [0, 0, 1, 1]);
 
-Pobs2x = zeros(1, length(Ob2));
-Pobs2y = zeros(1, length(Ob2));
-Pobs2z = zeros(1, length(Ob2));
-
-for i = 1:length(Ob1)
-    Px1 = Ob1{i}(1,:);
-    Py1 = Ob1{i}(2,:);
-    Pz1 = Ob1{i}(3,:);
-
-    Px2 = Ob2{i}(1,:);
-    Py2 = Ob2{i}(2,:);
-    Pz2 = Ob2{i}(3,:);
-
-    Pobs1x(i) = double(Px1);
-    Pobs1y(i) = double(Py1);
-    Pobs1z(i) = double(Pz1);
-    
-    Pobs2x(i) = double(Px2);
-    Pobs2y(i) = double(Py2);
-    Pobs2z(i) = double(Pz2);
-end
-
-
-%% Impostazioni grafiche
-figure;
-set(gcf, 'Units', 'Normalized', 'OuterPosition', [0, 0, 1, 1]);
-
-% Limiti del grafico
+% Batas area grafik
 xmin = -25; xmax = 45;
 ymin = -15; ymax = 22;
-zmin = 15; zmax = 82;
+zmin = 15;  zmax = 82;
 
 xlim([xmin, xmax]);
 ylim([ymin, ymax]);
@@ -43,102 +19,100 @@ zlim([zmin, zmax]);
 
 hold on;
 grid on;
+box on;
 
-% Imposta la vista 3D
+% Tampilan 3D
 view(3);
 axis equal;
+xlabel('X [m]');
+ylabel('Y [m]');
+zlabel('Z [m]');
+title('UAV Two-Obstacles Avoidance 3D Simulation');
 
-% Genera sfere iniziali per robot reale, robot di riferimento e ostacolo
+% Inisialisasi sfere untuk robot nyata, robot referensi, dan rintangan
 [robot_real_x, robot_real_y, robot_real_z] = generateSphere([xd(1), yd(1), zd(1)], r);
-[robot_ref_x, robot_ref_y, robot_ref_z] = generateSphere([X(1), Y(1), Z(1)], r);
+[robot_ref_x,  robot_ref_y,  robot_ref_z]  = generateSphere([X(1), Y(1), Z(1)], r);
 [obs1_x, obs1_y, obs1_z] = generateSphere([Pobs1x(1), Pobs1y(1), Pobs1z(1)], d);
 [obs2_x, obs2_y, obs2_z] = generateSphere([Pobs2x(1), Pobs2y(1), Pobs2z(1)], d);
 
 robot_real = surf(robot_real_x, robot_real_y, robot_real_z, ...
-    'FaceColor', [0.9290 0.6940 0.1250], 'EdgeColor', 'none', 'FaceAlpha', 0.5);
+    'FaceColor', [0.9290, 0.6940, 0.1250], 'EdgeColor', 'none', 'FaceAlpha', 0.5);
 robot_ref = surf(robot_ref_x, robot_ref_y, robot_ref_z, ...
-    'FaceColor', [0 0.5 1], 'EdgeColor', 'none', 'FaceAlpha', 0.5);
-obs1 = surf(obs1_x, obs1_y, obs1_z, ...
-    'FaceColor', 'r', 'EdgeColor', 'none', 'FaceAlpha', 0.9);
-obs2= surf(obs2_x, obs2_y, obs2_z, ...
-    'FaceColor', 'y', 'EdgeColor', 'none', 'FaceAlpha', 0.9);
+    'FaceColor', [0, 0.5, 1], 'EdgeColor', 'none', 'FaceAlpha', 0.5);
+obs1 = surf(obs1_x, obs1_y, obs1_z, 'FaceColor', 'r', 'EdgeColor', 'none', 'FaceAlpha', 0.9);
+obs2 = surf(obs2_x, obs2_y, obs2_z, 'FaceColor', 'y', 'EdgeColor', 'none', 'FaceAlpha', 0.9);
 
-% Trail (tracce) per posizione reale e di riferimento
-trail_real = line('XData', [], 'YData', [], 'ZData', [], 'Color', [0.9290 0.6940 0.1250], 'LineWidth', 3);
-trail_ref = line('XData', [], 'YData', [], 'ZData', [], 'Color', [0 0.5 1], 'LineWidth', 3);
-trail_obs1 = line('XData', [], 'YData', [], 'ZData', [], 'Color', [0.9 0 0], 'LineWidth', 3,'LineStyle',':');
-trail_obs2 = line('XData', [], 'YData', [], 'ZData', [], 'Color', [1 1 0], 'LineWidth', 3,'LineStyle',':');
+% Jejak (Trails)
+trail_real = line('XData', [], 'YData', [], 'ZData', [], 'Color', [0.9290, 0.6940, 0.1250], 'LineWidth', 2);
+trail_ref  = line('XData', [], 'YData', [], 'ZData', [], 'Color', [0, 0.5, 1], 'LineWidth', 2);
+trail_obs1 = line('XData', [], 'YData', [], 'ZData', [], 'Color', [0.9, 0, 0], 'LineWidth', 1.5, 'LineStyle', ':');
+trail_obs2 = line('XData', [], 'YData', [], 'ZData', [], 'Color', [0.8, 0.8, 0], 'LineWidth', 1.5, 'LineStyle', ':');
 
-% Freccia della velocità
+% Vektor Kecepatan (Quiver)
 v_vector = quiver3(X(1), Y(1), Z(1), X_dot(1), Y_dot(1), Z_dot(1), ...
                    'Color', 'k', 'LineWidth', 1.5, 'MaxHeadSize', 0.5);
 
-% Testo della velocità
+% Teks Indikator CBF
 vel = sqrt(X_dot.^2 + Y_dot.^2 + Z_dot.^2);
-v_text = text(X(1), Y(1), Z(1) + 1, num2str(vel(1)), 'FontSize', 14, 'Color', 'k');
+v_text = text(X(1), Y(1), Z(1) + 1, sprintf('CBF: %.2f', H(1)), 'FontSize', 12, 'Color', 'k', 'FontWeight', 'bold');
 
-hold on;
-plot3(xd,yd,zd, 'c--', 'LineWidth', 2)
+% Plot Trajektori Referensi Lengkap
+plot3(xd, yd, zd, 'c--', 'LineWidth', 1.5);
 
-%% Animazione
+%% Loop Animasi
 for k = 2:length(xd)
-    % Aggiornamento posizione robot reale
+    % Update posisi robot nyata & referensi
     [robot_real_x, robot_real_y, robot_real_z] = generateSphere([xd(k), yd(k), zd(k)], r);
     set(robot_real, 'XData', robot_real_x, 'YData', robot_real_y, 'ZData', robot_real_z);
     
-    % Aggiornamento posizione robot di riferimento
     [robot_ref_x, robot_ref_y, robot_ref_z] = generateSphere([X(k), Y(k), Z(k)], r);
     set(robot_ref, 'XData', robot_ref_x, 'YData', robot_ref_y, 'ZData', robot_ref_z);
     
-    % Aggiornamento posizione ostacoli
+    % Update posisi rintangan
     [obs1_x, obs1_y, obs1_z] = generateSphere([Pobs1x(k), Pobs1y(k), Pobs1z(k)], d);
     set(obs1, 'XData', obs1_x, 'YData', obs1_y, 'ZData', obs1_z);
 
     [obs2_x, obs2_y, obs2_z] = generateSphere([Pobs2x(k), Pobs2y(k), Pobs2z(k)], d);
     set(obs2, 'XData', obs2_x, 'YData', obs2_y, 'ZData', obs2_z);
     
-    % Aggiornamento tracce
-    x_trail_real = [get(trail_real, 'XData'), xd(k)];
-    y_trail_real = [get(trail_real, 'YData'), yd(k)];
-    z_trail_real = [get(trail_real, 'ZData'), zd(k)];
-    set(trail_real, 'XData', x_trail_real, 'YData', y_trail_real, 'ZData', z_trail_real);
+    % Update jejak lintasan
+    set(trail_real, 'XData', [get(trail_real, 'XData'), xd(k)], ...
+                    'YData', [get(trail_real, 'YData'), yd(k)], ...
+                    'ZData', [get(trail_real, 'ZData'), zd(k)]);
     
-    x_trail_ref = [get(trail_ref, 'XData'), X(k)];
-    y_trail_ref = [get(trail_ref, 'YData'), Y(k)];
-    z_trail_ref = [get(trail_ref, 'ZData'), Z(k)];
-    set(trail_ref, 'XData', x_trail_ref, 'YData', y_trail_ref, 'ZData', z_trail_ref);
+    set(trail_ref,  'XData', [get(trail_ref, 'XData'), X(k)], ...
+                    'YData', [get(trail_ref, 'YData'), Y(k)], ...
+                    'ZData', [get(trail_ref, 'ZData'), Z(k)]);
+
+    set(trail_obs1, 'XData', [get(trail_obs1, 'XData'), Pobs1x(k)], ...
+                    'YData', [get(trail_obs1, 'YData'), Pobs1y(k)], ...
+                    'ZData', [get(trail_obs1, 'ZData'), Pobs1z(k)]);
+
+    set(trail_obs2, 'XData', [get(trail_obs2, 'XData'), Pobs2x(k)], ...
+                    'YData', [get(trail_obs2, 'YData'), Pobs2y(k)], ...
+                    'ZData', [get(trail_obs2, 'ZData'), Pobs2z(k)]);
     
-    x_trail_obs1 = [get(trail_obs1, 'XData'), Pobs1x(k)];
-    y_trail_obs1 = [get(trail_obs1, 'YData'), Pobs1y(k)];
-    z_trail_obs1 = [get(trail_obs1, 'ZData'), Pobs1z(k)];
-    set(trail_obs1, 'XData', x_trail_obs1, 'YData', y_trail_obs1, 'ZData', z_trail_obs1);
-
-    x_trail_obs2 = [get(trail_obs2, 'XData'), Pobs2x(k)];
-    y_trail_obs2 = [get(trail_obs2, 'YData'), Pobs2y(k)];
-    z_trail_obs2 = [get(trail_obs2, 'ZData'), Pobs2z(k)];
-    set(trail_obs2, 'XData', x_trail_obs2, 'YData', y_trail_obs2, 'ZData', z_trail_obs2);
-
-    % Aggiornamento velocità
+    % Update vektor kecepatan
     set(v_vector, 'XData', X(k), 'YData', Y(k), 'ZData', Z(k), ...
                   'UData', X_dot(k), 'VData', Y_dot(k), 'WData', Z_dot(k));
     
-    % Aggiornamento testo della velocità
-    cbf = H(k);
-    clr = [0 0 0];
-    if cbf <= 0
-        clr = [1 0 0];
+    % Update status CBF
+    cbf_val = H(k);
+    clr = [0, 0, 0];
+    if cbf_val <= 0
+        clr = [1, 0, 0];
     end
-    set(v_text, 'Position', [X(k), Y(k), Z(k) + 1], 'String', num2str(cbf), 'Color', clr);
+    set(v_text, 'Position', [X(k), Y(k), Z(k) + 1], 'String', sprintf('CBF: %.2f', cbf_val), 'Color', clr);
 
     xlim([xmin, xmax]);
     ylim([ymin, ymax]);
     zlim([zmin, zmax]);
-    
-    % Genera il frame
-    drawnow;
+
+    drawnow limitrate;
+    pause(0.01);
 end
 
-%% Funzione per disegnare una sfera
+%% Fungsi Pembantu: Generate Sphere 3D
 function [x, y, z] = generateSphere(center, radius)
     [sx, sy, sz] = sphere(20);
     x = radius * sx + center(1);

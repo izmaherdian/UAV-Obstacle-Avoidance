@@ -1,372 +1,206 @@
-clear
-close all 
-clc
+%% UAVs_NoFeasible - Simulasi Penghindaran Rintangan Non-Feasible UAV Menggunakan CBF
+% Script ini mensimulasikan gerak UAV 3D mengikuti trajektori piecewise 3D
+% sembari menghadapi rintangan bergerak menggunakan Control Barrier Functions (CBF).
 
-% Use global Parameters to simplify simulation
-global A B K Kp Kd mu d d1 f Ox Oy R Obs alpha 
+clear;
+close all;
+clc;
 
-global Pd Xd Yd Zd Pd_dot Xd_dot Yd_dot Zd_dot Pd_dd s r a b Ox Oy Oz Ux Uy Uz Ob1 Ob2 H Ox1 Oy2
-syms Pd Xd Yd Zd Pd_dot Xd_dot Yd_dot Zd_dot Pd_dd s
+%% Global Parameters
+global A B Kp Kd mu r f Ox Oy Oz
 
-%% Trajectory Parameters (for feedforward)
-% Origin
+%% Parameter Trajektori (Feedforward)
+% Titik asal
 Ox = 0;
 Oy = 0;
 Oz = 0;
-Ox1=0;
-Oy2=0;
 
-% Ellipse's axes
-a = 20;
-b = 10;
-
-% Angular velocity (in Rad/s)
+% Kecepatan sudut / faktor kecepatan
 f = 1;
 
-%% Feedforward (elliptic trajectory)
-
-% Trajectory Reference t=10 t=15 t=20
-Pd1 = [  Ox + f*s; Oy; Oz];
-Pd2 = [  10; Oy+f*s; Oz];
-Pd3 = [  10; 10; Oz+f*s];
-
-% First derivative (velocity reference)
-Pd_dot1  = [ +f; 0; 0];
-Pd_dot2 = [ 0; f; 0];
-Pd_dot3  = [ 0; 0; f];
-
-Xd_dot1 = Pd_dot1(1,:);
-Yd_dot1 = Pd_dot1(2,:);
-Zd_dot1 = Pd_dot1(3,:);
-
-Xd_dot2 = Pd_dot2(1,:);
-Yd_dot2 = Pd_dot2(2,:);
-Zd_dot2 = Pd_dot2(3,:);
-
-Xd_dot3 = Pd_dot3(1,:);
-Yd_dot3 = Pd_dot3(2,:);
-Zd_dot3 = Pd_dot3(3,:);
-
-% Second derivative (acceleration reference for feedforward term)
-Pd_dd1 = [0; 0; 0];
-Pd_dd2 = [0; 0; 0];
-Pd_dd3 = [0; 0; 0];
-
-%% Obstacles Coordinates
-
-% In this scenario, all obstacles are moving. Otherwise, specify constant
-% Position of each obstacle
-
-%% Controller's parameters 
-% Proportional And derivative Gains
+%% Parameter Kontroler
+% Gain Proporsional dan Derivatif
 Kp = 100;
 Kd = 30;
 
 % Gain Matrix
-K = [   Kp  0   0   Kd  0   0;
-        0   Kp  0   0   Kd  0
-        0   0   Kp  0   0   Kd];
+K = [Kp,  0,  0, Kd,  0,  0;
+      0, Kp,  0,  0, Kd,  0;
+      0,  0, Kp,  0,  0, Kd];
 
-% CBF Parameters
+% Parameter CBF
 alpha = 5;
 mu = 0.05;
 d = 2;
 d1 = 5;
 r = 1;
 
-% Controller saturation
+% Saturasi kontroler
 sat = 20;
 
-%% System Dynamics' Matrices
+%% Matriks Dinamika Sistem
+A = [zeros(3, 3), eye(3);
+     zeros(3, 6)];
 
-A = [   0 0 0 1 0 0;
-        0 0 0 0 1 0;
-        0 0 0 0 0 1;
-        0 0 0 0 0 0;
-        0 0 0 0 0 0; 
-        0 0 0 0 0 0];
+B = [zeros(3, 3);
+     eye(3)];
 
+%% Simulasi Sistem Closed-Loop
+% Kondisi awal [x, y, z, vx, vy, vz]
+x0 = [0; 0; 0; 0; 0; 0];
 
-B = [   0 0 0;
-        0 0 0;
-        0 0 0;
-        1 0 0;
-        0 1 0;
-        0 0 1];
+% Vektor waktu simulasi
+tspan = 0:0.05:30;
 
-%% Closed Loop system simulation
+% Jalankan simulasi numerik
+[t, x] = ode45(@simulation, tspan, x0);
 
-% Initial state (robot in the origin, with zero velocity)
-x0 = [0 0 0 0 0 0];
+% Konversi format data simulasi untuk plotting
+[~, Xd, Yd, Zd, Ux, Uy, Uz, Ob1, h] = ...
+    cellfun(@(t_val, x_val) simulation(t_val, x_val.'), num2cell(t), num2cell(x, 2), 'UniformOutput', false);
 
-% Simulation time vector
-tspan=0:0.05:30;
+H = cell2mat(h);
 
-% Start simulation
-[t, x]=ode45(@simulation,tspan,x0);
+% Ekstraksi posisi rintangan
+Pobs1 = cell2mat(Ob1);
+Pobs1x = Pobs1(1, :);
+Pobs1y = Pobs1(2, :);
+Pobs1z = Pobs1(3, :);
 
-% Convert data format for plotting
-[~,Xd,Yd,Zd, Ux, Uy, Uz, Ob1, h] = cellfun(@(t,x) simulation(t,x.'), num2cell(t), num2cell(x,2),'uni',0);
-H = cell2mat(h)
+%% Plotting Hasil Simulasi
 
-%Extracting positions of Obstacle
-Pobs1x = zeros(1, length(Ob1));
-Pobs1y = zeros(1, length(Ob1));
-Pobs1z = zeros(1, length(Ob1));
+% Posisi UAV
+X = x(:, 1);
+Y = x(:, 2);
+Z = x(:, 3);
 
-for i = 1:length(Ob1)
-    Px = Ob1{i}(1,:);
-    Py = Ob1{i}(2,:);
-    Pz = Ob1{i}(3,:);
-    Pobs1x(i) = double(Px);
-    Pobs1y(i) = double(Py);
-    Pobs1z(i) = double(Pz);
-end
+% Kecepatan UAV
+X_dot = x(:, 4);
+Y_dot = x(:, 5);
+Z_dot = x(:, 6);
 
-%% Plotting
-
-% Robot Trajectory
-figure(1)
-title('Robot Trajectory')
-xlabel('x')
-ylabel('y')
-
-% X,Y position
-X = x(:,1);
-Y = x(:,2);
-Z = x(:,3);
-
-% X,Y velocities
-X_dot = x(:,4);
-Y_dot = x(:,5);
-Z_dot = x(:,6);
-
-% Plot robot trajectory
-plot3(X,Y,Z,'color', 'b', 'LineWidth', 2)
-xlim([-15,15]);
-ylim([-15,15]);
-zlim([-15,15]);
-
-hold on
-
-
-
-% Plot Obstacles
-for i=1:size(Obs,2)
-
-    cx = Obs(1,i);
-    cy = Obs(2,i);
-    cz = Obs(3,i);
-    
-    [x, y, z] = sphere(50);
-
-    Xeff = d*x +cx;
-    Yeff = d*y +cy;
-    Zeff = d*z +cz;
-
-    surf(Xeff, Yeff, Zeff, 'FaceColor', 'r', 'EdgeColor','none');
-
-    plot3(cx,cy, cz, 'bo', 'LineWidth', 5);
-end
-
-
-% Plot Reference Trajectory
+% Trajektori Referensi
 xd = cell2mat(Xd);
 yd = cell2mat(Yd);
 zd = cell2mat(Zd);
 
-plot3(xd, yd, zd, 'color', 'b', 'LineWidth', 2)
+% 1. Plot Trajektori Robot & Referensi
+figure(1);
+plot3(X, Y, Z, 'b-', 'LineWidth', 2);
+hold on;
+plot3(xd, yd, zd, 'c--', 'LineWidth', 1.5);
+title('Robot Trajectory in 3D');
+xlabel('x [m]');
+ylabel('y [m]');
+zlabel('z [m]');
+legend('Robot Trajectory', 'Reference Trajectory', 'Location', 'best');
+grid on;
+box on;
+axis equal;
 
-
-% Extract robot's "trail"
-%[X1, X2, Y1, Y2, Z1, Z2] = border(X,Y,Z,X_dot, Y_dot,Z_dot);
-
-% Plot the two curves that define the trail
-% plot3(X1, Y1, Z1, 'b', 'LineWidth', 1);
-% plot3(X2, Y2, Z2, 'b', 'LineWidth', 1);
-
-% Fill area in between
-% for i=2:length(X1)
-%     plot3([X1(i) X2(i)], [Y1(i) Y2(i)], [Z1(i) Z2(i)], 'b', 'LineWidth', 0.1)
-% end
-
-% Control Effort
-figure(2)
-title('Control Effort')
-xlabel('t')
-ylabel('u(t) [m/s^2]')
+% 2. Plot Control Effort
+figure(2);
 ux = cell2mat(Ux);
 uy = cell2mat(Uy);
 uz = cell2mat(Uz);
-plot(t,ux, 'b',t, uy,'r', t, uz, 'y', 'LineWidth',2)
-yline(sat, 'k--','Label','Saturation')
-yline(-sat, 'k--','Label','Saturation')
-legend('x acceleration','y acceleration', 'z acceleration')
-% ylim([min([ux;uy])-2,max([ux;uy])+2])
+plot(t, ux, 'b', t, uy, 'r', t, uz, 'm', 'LineWidth', 2);
+hold on;
+yline(sat, 'k--', 'Label', 'Saturation', 'LineWidth', 1.2);
+yline(-sat, 'k--', 'Label', '-Saturation', 'LineWidth', 1.2);
+hold off;
+title('Control Effort');
+xlabel('t [s]');
+ylabel('u(t) [m/s^2]');
+legend('x acceleration', 'y acceleration', 'z acceleration', 'Location', 'best');
+grid on;
+box on;
 
-% Robot Velocity
-figure(3)
-title('Robot Velocities')
-xlabel('t')
-ylabel('v(t) [m/s]')
-plot(t,X_dot, 'b',t, Y_dot,'r','LineWidth',2)
-legend('x velocity','y velocity')
-ylim([min([X_dot;Y_dot])-2,max([X_dot;Y_dot])+2])
+% 3. Plot Kecepatan UAV
+figure(3);
+plot(t, X_dot, 'b', t, Y_dot, 'r', t, Z_dot, 'm', 'LineWidth', 2);
+title('Robot Velocities');
+xlabel('t [s]');
+ylabel('v(t) [m/s]');
+legend('x velocity', 'y velocity', 'z velocity', 'Location', 'best');
+grid on;
+box on;
 
-%% Simulation Function
-function [dx,Xd,Yd,Zd, Ux, Uy, Uz, Ob1, h] =simulation(t,x)
-global A B Pd Pd_dot Pd_dd s Kp Kd Obs mu alpha r a b f Ox Oy Oz po poPerp Ox1 Oy2
+%% Fungsi Simulasi Sistem Dinamik dan Kontroler CBF
+function [dx, Xd, Yd, Zd, Ux, Uy, Uz, Ob1, h] = simulation(t, x)
+    global A B Kp Kd mu r f Ox Oy Oz
 
-deltaFunc1 = 2;
+    deltaFunc1 = 2;
 
-% FeedForward
-yref1 = [Ox + f*t; Oy; Oz];
+    % Trajektori Referensi Piecewise (Feedforward)
+    if t <= 10
+        yref = [Ox + f*t; Oy; Oz];
+        yref_dot = [f; 0; 0];
+        yref_dd = [0; 0; 0];
+    elseif t <= 20
+        yref = [Ox + 10*f; Oy + f*(t - 10); Oz];
+        yref_dot = [0; f; 0];
+        yref_dd = [0; 0; 0];
+    else
+        yref = [Ox + 10*f; Oy + 10*f; Oz + f*(t - 20)];
+        yref_dot = [0; 0; f];
+        yref_dd = [0; 0; 0];
+    end
 
-% find initial potision for yref2
-if(t<=10)
-    Ox1=Ox + f*t;
-end
+    % Rintangan Bergerak
+    Ob1 = [f*t - 10; 10; 0];
+    Ob1Dot = [f; 0; 0];
+    Ob1DotDot = [0; 0; 0];
 
-%subtrac 10 because we have gap with time t=10 and no t=0
-yref2 = [Ox1; Oy+f*t-10; Oz];
+    % Posisi dan kecepatan UAV saat ini
+    Pi = x(1:3);
+    Pi_dot = x(4:6);
 
-% find initial potision for yref3
-if(t<=20)
-    Oy2=Oy+f*t-10; 
-end
+    % Kontrol Nominal
+    uNominal = yref_dd + Kd*(yref_dot - Pi_dot) + Kp*(yref - Pi);
 
-yref3 = [Ox1; Oy2; Oz+f*t-20];
+    % Vektor relatif terhadap rintangan
+    V = Pi - Ob1;
+    V_dot = Pi_dot - Ob1Dot;
 
-yref_dot1  = [f; 0; 0];
-yref_dot2  = [0; f; 0];
-yref_dot3  = [0; 0; f];
+    % Operator Proyeksi
+    po = (V * V') / (V' * V);
+    poPerp = eye(3) - po;
 
-yref_dd1 = [0; 0; 0];
-yref_dd2 = [0; 0; 0];
-yref_dd3 = [0; 0; 0];
+    % Komponen tegak lurus jika arah segaris
+    u_perp = zeros(3, 1);
+    if rank([V, Pi_dot, Ob1Dot], 0.1) == 1
+        u_perp = [-V(2); V(1); 0];
+    end
 
-yref1 = double(yref1);
-yref2 = double(yref2);
-yref3 = double(yref3);
+    % Evaluasi Control Barrier Function (CBF)
+    h1 = V' * (mu*uNominal + 2*V_dot - mu*Ob1DotDot);
+    h2 = (V'*V + mu*(V'*V_dot));
+    gamma = 12;
 
-yref_dot1 = double(yref_dot1);
-yref_dot2 = double(yref_dot2);
-yref_dot3 = double(yref_dot3);
+    % Switching Logika CBF
+    if h1 > 0 || h2 > deltaFunc1 + (r*gamma)
+        u = uNominal;
+    else
+        u = ((-2/mu) * (po * V_dot)) + (poPerp * uNominal) + Ob1DotDot + u_perp;
+    end
 
-yref_dd1 = double(yref_dd1);
-yref_dd2 = double(yref_dd2);
-yref_dd3 = double(yref_dd3);
+    % Saturasi kontroler
+    sat = 10;
+    u = min(max(u, -sat), sat);
 
-% Obstacle Position (moving)
-% Ob1 = [   -0.5*f*t  ;
-%         10 - f*t  ];
-% 
-% Ob1Dot = [-0.5*f; -f];
+    % Output Kontrol
+    Ux = u(1);
+    Uy = u(2);
+    Uz = u(3);
 
-Ob1 = [f*t-10; 10; 0];
-Ob1Dot = [f; 0; 0];
+    % Output Referensi
+    Xd = yref(1);
+    Yd = yref(2);
+    Zd = yref(3);
 
-Ob1DotDot = [0; 0; 0];
+    % Indeks Evaluasi CBF
+    h = V'*V + mu*(V'*V_dot) - (deltaFunc1 + r);
 
-Ob1 = double(Ob1);
-Ob1Dot = double(Ob1Dot);
-Ob1DotDot = double(Ob1DotDot);
-
-Obs = Ob1;
-% Position and Velocity
-Pi = x(1:3);
-Pi_dot = x(4:6);
-
-%condition straight 
-if(t<=10)
-    yref=yref1;
-    yref_dot=yref_dot1;
-    yref_dd=yref_dd1;
-elseif(t>10 && t<=20)
-    yref=yref2;
-    yref_dot=yref_dot2;
-    yref_dd=yref_dd2;
-else
-    yref=yref3;
-    yref_dot=yref_dot3;
-    yref_dd=yref_dd3;
-
-end
-
-% Nominal control
-uNominal = yref_dd + Kd*(yref_dot - Pi_dot) + Kp*(yref-Pi);
-
-t
-
-V = (Pi- Ob1);
-if(norm(V)<=r+deltaFunc1)
-    disp(norm(V))
-end
-V_dot = (Pi_dot - Ob1Dot);
-%Definition of Projection Operators
-po = V*((V'*V)^(-1))*V';
-poPerp = eye(3) - po;
-
-u_perp = 0;
-% Perp component
-if rank([V, Pi_dot, Ob1Dot],  0.1) == 1
-    u_perp = ([-V(2); V(1); 0]);
-end
-    
-
-V_inv = V*((V'*V)^(-1));
-%Definition of CBF
-h1 = V' * (mu*uNominal + 2*V_dot - mu*Ob1DotDot);
-h2 = (V'*V + mu*V'*V_dot);
-gamma = 12;
-
-%Switching
-if h1>0 || h2>deltaFunc1+(r*gamma)
-    u = uNominal;
-else
-    u = ((-2/mu)*(po*V_dot)) + (poPerp*uNominal) + Ob1DotDot + u_perp; %+ 2*V_inv*Pi_dot'*Ob1Dot;
-end
-
-% % Controller Saturation (if needed)
-sat = 10;
-
-if u(1) > sat
-    u(1) = sat;
-end
-
-if u(1) < -sat
-    u(1) = -sat;
-end
-
-if u(2) > sat
-    u(2) = sat;
-end
-
-if u(2) < -sat
-    u(2) = -sat;
-end
-
-if u(3) > sat
-    u(3) = sat;
-end
-
-if u(3) < -sat
-    u(3) = -sat;
-end
-
-% X,Y control
-Ux = u(1);
-Uy = u(2);
-Uz = u(3);
-
-% X,Y reference 
-Xd = yref(1);
-Yd = yref(2);
-Zd = yref(3);
-
-% CBF evaluation index
-h = V'*V+mu*V'*V_dot - (deltaFunc1+r);
-
-% Proceed to next simulation step
-dx = A*x + B*u;
+    % Persamaan diferensial state
+    dx = A*x + B*u;
 end
